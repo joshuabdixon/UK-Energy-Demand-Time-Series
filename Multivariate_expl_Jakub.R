@@ -1,20 +1,25 @@
-library(tidyverse)  
-library(data.table) 
-library(lubridate)  
-library(visdat) 
-library(naniar)     
-library(zoo)        
-library(GGally)       
-library(corrplot)     
-library(ggplot2)      
-library(ggcorrplot)   
-library(car)          
-library(tseries)      
-library(forecast) 
+library(tidyverse)
+library(data.table)
+library(lubridate)
+library(visdat)
+library(naniar)
+library(zoo)
+library(GGally)
+library(corrplot)
+library(ggplot2)
+library(ggcorrplot)
+library(car)
+library(tseries)
+library(forecast)
 library(patchwork)
 library(plotly)
-install.packages(c("patchwork","plotly"))
-
+library(gridExtra)
+library(grid)
+library(ggplotify)
+library(lmtest)
+library(vars)
+library(urca)
+library(factoextra)
 
 
 file_path <- "energy_demand_uk.csv"  
@@ -73,13 +78,24 @@ df_log %>%
   ggtitle("Boxplots (Log-Transformed)")
 
 
-# Identify extreme values using Z-score method
+# Identify numeric columns
+numeric_cols <- colnames(df)[sapply(df, is.numeric)]
+
+# Compute Z-scores for numeric columns
 outlier_threshold <- 3  # Standard Z-score threshold
 z_scores <- df[, lapply(.SD, function(x) (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)), .SDcols = numeric_cols]
-outliers <- df[rowSums(abs(z_scores) > outlier_threshold) > 0]
 
-# Print num of detected outliers
-print(nrow(outliers))
+# Identify which variables contain outliers
+outliers_matrix <- abs(z_scores) > outlier_threshold  # TRUE where an outlier exists
+outlier_counts <- colSums(outliers_matrix)  # Count number of outliers per variable
+
+# Filter only variables that contain outliers
+outlier_vars <- names(outlier_counts[outlier_counts > 0])
+
+# Print variables containing outliers & their count
+outlier_summary <- data.frame(Variable = outlier_vars, Outlier_Count = outlier_counts[outlier_vars])
+print(outlier_summary)
+
 
 # Manually Winsorizing numeric columns (capping extreme values at 1st and 99th percentile)
 df[, (numeric_cols) := lapply(.SD, function(x) {
@@ -102,10 +118,10 @@ numeric_vars <- df %>% select(-date)
 # Pairwise Correlation Analysis
 # 
 
-# Compute correlation matrix
+# Compute correlation matrix ## UNUSED
 cor_matrix <- cor(numeric_vars, use="complete.obs", method="pearson")
 
-# Plot the correlation matrix
+# Plot the UNUSED correlation matrix
 ggcorrplot(cor_matrix, 
            method = "circle", 
            type = "upper", 
@@ -113,31 +129,112 @@ ggcorrplot(cor_matrix,
            colors = c("red", "white", "blue"),
            title = "Correlation Matrix of Energy Demand Dataset")
 
-#
-# Cross-Correlation Function (CCF)
-# 
+##############################################################################################
+
+# Custom correlation panel (upper panels)
+custom_cor <- function(data, mapping, ...) {
+  x <- eval_data_col(data, mapping$x)
+  y <- eval_data_col(data, mapping$y)
+  corr <- cor(x, y, use = "complete.obs")
+  corr_text <- sprintf("%.2f", corr)
+  
+  df <- data.frame(x = 1, y = 1, corr = corr)
+  
+  ggplot(df, aes(x, y, fill = corr)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = corr_text), size = 5) +
+    scale_fill_gradient2(
+      low = "blue",     # Negative correlation
+      mid = "white",    # Zero correlation
+      high = "red",     # Positive correlation
+      midpoint = 0,
+      limits = c(-1, 1)
+    ) +
+    theme_void() +
+    theme(legend.position = "right")
+}
+
+
+my_column_labels <- c(
+  "National\nDemand",
+  "Wind\nGen",
+  "Solar\nGen",
+  "Min\nTemp",
+  "Max\nTemp",
+  "Rain\nmm",
+  "Wind\nSpeed",
+  "Avg\nPrice\nDaily"
+)
+
+options(scipen = 999)
+
+# Create the ggpairs plot
+p <- ggpairs(
+  numeric_vars,
+  columnLabels = my_column_labels,  
+  lower = list(
+    continuous = wrap("points", alpha = 0.3, size = 0.8, color = "gray40")
+  ),
+  diag = list(
+    continuous = wrap("densityDiag", fill = "gray40", color = "gray40", alpha = 0.3)
+  ),
+  upper = list(
+    continuous = custom_cor
+  ),
+  title = "Pairwise Scatterplot with Correlation Matrix"
+)
+
+# Adjust theme to fix label overlap & give more space
+p <- p + theme(
+  axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+  axis.text.y = element_text(size = 8),
+  strip.text  = element_text(size = 8),
+  plot.margin = margin(10, 10, 10, 10)
+)
+
+
+print(p)
+
+
+
+#PCA
+# Standardize data 
+df_scaled <- scale(numeric_vars)
+
+# Compute PCA
+pca_model <- prcomp(df_scaled, center = TRUE, scale. = TRUE)
+
+#Visualize PCA Biplot
+fviz_pca_biplot(pca_model, label = "var", col.var = "red", col.ind = "blue",
+                title = "PCA Biplot of Energy Demand Data")
+
+#Scree Plot (Variance Explained)
+fviz_eig(pca_model, addlabels = TRUE, title = "Scree Plot of PCA")
+
+# PCA Contributions
+fviz_pca_var(pca_model, col.var = "contrib",
+             gradient.cols = c("blue", "red"),
+             title = "Variable Contributions to PCA")
 
 # 
-# 3. Adjusted Cross-Correlation Analysis (CCF)
+# 4. Adjusted Multicollinearity Analysis (VIF)
 # 
 
+# Drop max_temp (because of 0.9 correlation with min_temp)
+#vif_df <- numeric_vars %>% select(-c(max_temp)) 
+vif_df <- numeric_vars 
+# Compute Variance Inflation Factor (VIF)
+vif_results <- vif(lm(national_demand ~ ., data = vif_df))
+
+# Print VIF results
+print(vif_results)
+
+#Drop max_temp (because of 0.9 correlation with min_temp)
+vif_df <- numeric_vars %>% select(-c(max_temp)) 
 
 
-# Convert key variables to time series format
-freq <- 365
-
-# Convert all relevant variables into time series format
-energy_ts     <- ts(df$national_demand, frequency = freq)
-wind_ts       <- ts(df$wind_generation, frequency = freq)
-solar_ts      <- ts(df$solar_generation, frequency = freq)
-temp_ts       <- ts(df$min_temp, frequency = freq)  # Keeping only min_temp - collinearity
-rain_ts       <- ts(df$rain_mm, frequency = freq)
-wind_speed_ts <- ts(df$wind_speed, frequency = freq)
-price_ts      <- ts(df$average_price_daily, frequency = freq)
-
-# 
-# 3. Cross-Correlation Function (CCF) Analysis
-#
+# Set up a grid layout: 3 rows and 2 columns
+par(mfrow = c(3, 2))
 
 # Cross-Correlation: Energy Demand vs. Wind Generation
 ccf(energy_ts, wind_ts, lag.max = 30, main = "CCF: Energy Demand vs. Wind Generation")
@@ -158,82 +255,124 @@ ccf(energy_ts, wind_speed_ts, lag.max = 30, main = "CCF: Energy Demand vs. Wind 
 ccf(energy_ts, price_ts, lag.max = 30, main = "CCF: Energy Demand vs. Electricity Price")
 
 
-# 
-# 4. Adjusted Multicollinearity Analysis (VIF)
-# 
+par(mfrow = c(1, 1))
 
-# Drop max_temp (because of 0.9 correlation with min_temp)
-vif_df <- numeric_vars %>% select(-c(max_temp)) 
-
-# Compute Variance Inflation Factor (VIF)
-vif_results <- vif(lm(national_demand ~ ., data = vif_df))
-
-# Print VIF results
-print(vif_results)
+ccf(wind_ts, temp_ts, lag.max = 30, main = "CCF: Wind energy Generation vs. Temperature")
 
 # =====================================
-# 5. Pairwise Scatterplots (For Validation)
+# 5.2 GRANGER CAUSALITY ANALYSIS
+
+optimal_lag <- VARselect(cbind(energy_ts, solar_ts), lag.max = 150, type = "const")
+print(optimal_lag)
+
+# Granger Test: Does Temperature Granger-Cause Energy Demand?
+grangertest(energy_ts ~ temp_ts, order = 9)
+
+# Granger Test: Does Temperature Granger-Cause Energy Demand?
+grangertest(solar_ts ~ temp_ts, order = 9)
+
+# Granger Test: Does Temperature Granger-Cause Energy Demand?
+grangertest(temp_ts ~ solar_ts, order = 9)
+
+c# Granger Test: Does Wind Generation Granger-Cause Energy Demand?
+grangertest(energy_ts ~ wind_ts, order = 9)
+
+# Granger Test: Does Solar Generation Granger-Cause Energy Demand?
+grangertest(energy_ts ~ solar_ts, order = 5)
+
+# Granger Test: Does Energy Demand Granger-Cause Electricity Price?
+grangertest(price_ts ~ energy_ts, order = 5)
+
+# Granger Test: Does Electricity Price Granger-Cause Energy Demand?
+grangertest(energy_ts ~ price_ts, order = 5)
+
+# Granger Test: Rainfall Granger-Cause Energy Demand?
+grangertest(wind_ts ~ energy_ts, order = 5)
+
+# Granger Test: Rainfall Granger-Cause Energy Demand?
+grangertest(wind_ts ~ solar_ts, order = 5)
+
+# =====================================
+# 5.3 IDENTIFY OPTIMAL LAG STRUCTURES
 # =====================================
 
-# Pairwise scatterplots 
-ggpairs(vif_df, 
-        aes(color = "blue", alpha = 0.5),
-        lower = list(continuous = wrap("points", alpha = 0.3, size = 0.8)),
-        upper = list(continuous = wrap("cor", size = 4)),
-        title = "Pairwise Scatterplots (Adjusted)")
+# **Impulse Response Function (IRF)**
+irf_model <- irf(var_model, impulse = "solar", response = "energy", n.ahead = 30)
+plot(irf_model)
 
-
-# Time Series Plots
-p1 <- ggplot(df, aes(x = date, y = national_demand)) +
-  geom_line(color = "blue", size = 1) +
-  labs(title = "Energy Demand Over Time", x = "Date", y = "Energy Demand (MW)") +
+# **Plot 3: Interactive Multivariate Plot**
+p3 <- ggplot(df, aes(x = date)) +
+  geom_line(aes(y = national_demand, color = "Energy Demand"), size = 1) +
+  geom_line(aes(y = wind_generation, color = "Wind Generation"), size = 1) +
+  geom_line(aes(y = solar_generation, color = "Solar Generation"), size = 1) +
+  labs(title = "Interactive Multivariate Time Series Plot", x = "Date", y = "Value") +
   theme_minimal()
 
-# Interactive Plot for Energy Demand
-p3 <- ggplot(df, aes(x = date, y = national_demand)) +
-  geom_line(color = "darkblue", size = 1) +
-  labs(title = "Interactive Energy Demand Plot", x = "Date", y = "Energy Demand (MW)") +
-  theme_minimal()
-
-interactive_p3 <- ggplotly(p3)
-
-# Rolling Statistics
-df <- df %>%
-  mutate(
-    rolling_avg_7d = rollmean(national_demand, 7, fill = NA, align = "right"),
-    rolling_avg_30d = rollmean(national_demand, 30, fill = NA, align = "right"),
-    rolling_std_7d = rollapply(national_demand, 7, sd, fill = NA, align = "right"),
-    rolling_std_30d = rollapply(national_demand, 30, sd, fill = NA, align = "right")
-  )
-
-# Rolling Mean Plot
-p4 <- ggplot(df, aes(x = date)) +
-  geom_line(aes(y = national_demand, color = "Actual Demand"), size = 1) +
-  geom_line(aes(y = rolling_avg_7d, color = "7-Day Rolling Avg"), size = 1) +
-  geom_line(aes(y = rolling_avg_30d, color = "30-Day Rolling Avg"), size = 1) +
-  labs(title = "Rolling Averages of Energy Demand", x = "Date", y = "Energy Demand (MW)") +
-  scale_color_manual(values = c("Actual Demand" = "blue", "7-Day Rolling Avg" = "red", "30-Day Rolling Avg" = "green")) +
-  theme_minimal()
-
-# Rolling Correlation
-df_rolling <- df %>%
-  mutate(
-    rolling_corr_temp = rollapply(national_demand, 30, function(x) cor(x, temp_ts[1:length(x)], use = "complete.obs"), fill = NA, align = "right"),
-    rolling_corr_wind = rollapply(national_demand, 30, function(x) cor(x, wind_ts[1:length(x)], use = "complete.obs"), fill = NA, align = "right"),
-    rolling_corr_solar = rollapply(national_demand, 30, function(x) cor(x, solar_ts[1:length(x)], use = "complete.obs"), fill = NA, align = "right")
-  )
-
-# Rolling Correlation Plot
-p6 <- ggplot(df_rolling, aes(x = date)) +
-  geom_line(aes(y = rolling_corr_temp, color = "Temp vs Demand"), size = 0.2) +
-  geom_line(aes(y = rolling_corr_wind, color = "Wind vs Demand"), size = 0.2) +
-  geom_line(aes(y = rolling_corr_solar, color = "Solar vs Demand"), size = 0.2) +
-  labs(title = "Rolling Correlation Between Energy Demand & Weather", x = "Date", y = "Rolling Correlation") +
-  scale_color_manual(values = c("Temp vs Demand" = "blue", "Wind vs Demand" = "red", "Solar vs Demand" = "green")) +
-  theme_minimal()
-
-# Display plots
-print(p1)
-print(p4)
-print(p6)
+interactive_p3 <- ggplotly(p3)  # Convert to interactive plot
 interactive_p3
+
+# Vector Autoregression (VAR) to Determine Optimal Lags
+data_var <- data.frame(energy_ts, solar_ts)
+
+# Find Optimal Lag Length for VAR Model
+lag_selection <- VARselect(data_var, lag.max = 365, type = "const")
+
+# Print Recommended Lag
+print(lag_selection$selection)
+
+packages <- c("tidyverse", "tseries", "urca", "vars", "forecast")
+install.packages(setdiff(packages, installed.packages()[,"Package"]), dependencies = TRUE)
+
+# =====================================
+# 7.1 VECTOR AUTOREGRESSION (VAR)
+# =====================================
+
+# **Check for Stationarity using Augmented Dickey-Fuller (ADF) Test**
+adf_energy <- adf.test(energy_ts)
+adf_wind   <- adf.test(wind_ts)
+adf_solar  <- adf.test(solar_ts)
+
+
+# Print results
+print(adf_energy)
+print(adf_wind)
+print(adf_solar)
+
+
+# **If non-stationary, take first differences**
+diff_solar  <- diff(solar_ts)
+
+adf_solar  <- adf.test(diff_solar)
+print(adf_solar)
+
+
+# Combine into a data frame for VAR modeling
+var_data <- data.frame(
+  energy = energy_ts[-1],  # Remove first row
+  wind   = wind_ts[-1],    # Remove first row
+  solar  = diff_solar      # Already differenced, so it matches
+)
+
+# **Fit a VAR Model**
+var_model <- VAR(var_data, p = 29, type = "const")  # Using lag = 5 (adjust if needed)
+summary(var_model)
+
+
+
+# =====================================
+# 7.2 VECTOR ERROR CORRECTION MODEL (VECM)
+# =====================================
+
+# **Test for Cointegration using Johansen Test**
+johansen_test <- ca.jo(var_data, type = "trace", ecdet = "const", K = 5)
+summary(johansen_test)
+
+# **If Cointegration Exists, Fit a VECM Model**
+if (johansen_test@teststat[2] > johansen_test@cval[2,2]) {  # Checking significance of the test
+  vecm_model <- cajorls(johansen_test, r = 1)  # Rank = 1 means at least one cointegrating relationship
+  print(summary(vecm_model))
+} else {
+  print("No significant cointegration found. Proceeding without VECM.")
+}
+
+
