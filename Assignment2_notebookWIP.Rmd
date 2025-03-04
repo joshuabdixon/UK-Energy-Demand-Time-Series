@@ -1,0 +1,182 @@
+---
+title: "Group1_Assessment2"
+author: "06014041"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r dependencies}
+# Resolve conflicts
+library(conflicted)  
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
+
+
+library(tidyverse)   
+library(lubridate)   
+library(tibble)     
+library(tidyr)   
+library(ggplot2)
+```
+
+## Introduction
+This notebook reproduces our exploratory data analyses of UK daily energy demand (2020–2024) and its relationship to renewable energy sources, weather, and price variables.
+
+
+## Load data and check quality
+```{r}
+# Load the data
+energy_data <- read_csv("energy_demand_uk.csv")
+
+# Quick look at columns
+glimpse(energy_data)
+
+# View the head
+head(energy_data)
+
+help(fread)
+
+# show the structure
+str(energy_data)
+help(str)
+# View spec
+spec(energy_data)
+
+# View the summary statistics
+summary(energy_data)
+
+# Check for duplicates in date column
+date_duplicate_count <- sum(duplicated(energy_data$date))
+date_duplicate_count # confirms no duplicates
+
+# Check for missing values in each column
+missing_by_col <- colSums(is.na(energy_data))
+missing_by_col # few missing values noted for some columns
+
+# Check incomplete vs incomplete rows
+complete_rows <- sum(complete.cases(energy_data))
+incomplete_rows <- nrow(energy_data) - complete_rows
+cat("Complete rows:", complete_rows, "\n")
+cat("Incomplete rows:", incomplete_rows, "\n")
+
+# View the incomplete row
+incomplete_rows <- energy_data[!complete.cases(energy_data), ]
+incomplete_rows
+
+
+```
+
+### Comments on single missing values
+It is likely that the missing observation was overlooked as 2024 is a leap year, the missing date is 29/02/2024. **Missingness Mechanism to be determined**, we will remove for now.
+```{r}
+# Remove all rows that contain any NA values
+energy_data_clean <- energy_data %>%
+  filter(complete.cases(.))
+
+# Check if any missing values remain
+colSums(is.na(energy_data_clean))  # Should return 0 for all columns
+```
+
+
+## Univariate EDA
+```{r}
+# Pivot the data to long format
+energy_data_long <- energy_data_clean %>%
+  pivot_longer(
+    cols = c(national_demand, wind_generation, solar_generation,
+             min_temp, max_temp, rain_mm, wind_speed, average_price_daily),
+    names_to = "variable",
+    values_to = "value"
+  )
+
+# Plot each variable as a time series, using facets
+ggplot(energy_data_long, aes(x = date, y = value)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(
+    title = "Time Series Plots of All Variables",
+    x = "Date",
+    y = "Value"
+  ) +
+  theme_bw()
+```
+
+## Repeated univariate visualisations (function)
+```{r repeated_univariate_functions}
+# Colour-blind friendly palette
+cbPalette <- c("#000000", '#E69F00', '#56B4E9', '#009E73', 
+               '#F0E442', '#0072B2', '#D55E00', '#CC79A7')
+
+# Function to create overlaid histograms
+plot_two_hists <- function(df, var1, var2, binwidth = 1) {
+  library(ggplot2)
+  
+  ggplot(df, aes(x = .data[[var1]])) +
+    # First histogram
+    geom_histogram(
+      aes(y = after_stat(density)),
+      binwidth = binwidth,
+      fill = cbPalette[1],
+      alpha = 0.4,
+      colour = "black"
+    ) +
+    # Second histogram
+    geom_histogram(
+      aes(x = .data[[var2]], y = after_stat(density)),
+      binwidth = binwidth,
+      fill = cbPalette[2],
+      alpha = 0.4,
+      colour = "black"
+    ) +
+    labs(
+      x = "Value",
+      y = "Density",
+      title = paste("Overlaid Histograms of", var1, "and", var2)
+    ) +
+    theme_minimal()
+}
+
+# Function to plot two densities
+plot_two_densities <- function(df, var1, var2) {
+  library(ggplot2)
+  
+  ggplot(df, aes(x = .data[[var1]])) +
+    # First density
+    geom_density(
+      fill = cbPalette[1],
+      colour = cbPalette[1],
+      alpha = 0.4
+    ) +
+    # Second density
+    geom_density(
+      aes(x = .data[[var2]]),
+      fill = cbPalette[2],
+      colour = cbPalette[2],
+      alpha = 0.4
+    ) +
+    labs(
+      x = "Value",
+      y = "Density",
+      title = paste("Overlaid Densities of", var1, "and", var2)
+    ) +
+    theme_minimal()
+}
+```
+
+
+
+```{r}
+energy_data_clean
+```
+
+
