@@ -1,0 +1,131 @@
+---
+title: "EDAV Group Assessment"
+output: html_document
+author: Muhammad Ibrahim
+date: "2025-02-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Loading Libraries
+```{r}
+
+library(ggplot2)
+library(tseries)
+library(zoo)
+library(forecast)
+library(lubridate)
+library(dplyr)
+
+```
+
+## Loading df
+```{r}
+
+df <- read.csv("energy_demand_uk.csv")
+
+df$date <- as.Date(df$date, format="%Y-%m-%d")
+
+df$year <- year(df$date)
+df$month <- month(df$date, label=TRUE)
+df$day_of_week <- wday(df$date, label=TRUE)
+
+head(df)
+summary(df)
+
+```
+
+## Time Series Visualisation
+```{r}
+ggplot(df, aes(x = date, y = national_demand)) +
+  geom_line(color = "blue") +
+  labs(title = "Energy Demand Over Time", x = "Date", y = "Energy Demand") + 
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y")
+```
+
+## ADF Test and ACF/PACF Analysis on raw data
+```{r}
+adf_test <- adf.test(df$national_demand)
+print(adf_test)
+
+acf(df$national_demand, main = "ACF of Energy Demand", lag.max = 30, ylim = c(-0.3, 1.0))
+pacf(df$national_demand, main = "PACF of Energy Demand", lag.max = 30, ylim = c(-0.3, 1.0))
+```
+## Time Series Decomposition
+```{r}
+ts_decomp <- stl(ts_df,s.window = "periodic")
+plot(ts_decomp)
+```
+
+## Spectral Analysis
+```{r}
+spectrum_result <- spectrum(df$national_demand, span = 85)
+dominant_freq <- spectrum_result$freq[which.max(spectrum_result$spec)]
+
+
+cat("Dominant frequency:", dominant_freq, "\n")
+cat("period (days):", 1 / dominant_freq, "\n")
+```
+
+## Seasonal differencing
+```{r}
+ts_df <- ts(df$national_demand, start = c(year(min(df$date))), frequency = 365)
+seasonal_diff <- diff(ts_df, lag = 365)
+seasonal_diff_ts <- ts(seasonal_diff, frequency = 365)
+seasonal_diff_nm <- as.numeric(seasonal_diff)
+
+adf_diff <- adf.test(seasonal_diff)
+print(adf_diff)
+
+par(mar = c(4.5, 4, 1, 1))
+acf(seasonal_diff_nm, main = "", lag.max = 30, ylim = c(-0.3, 1.0))
+pacf(seasonal_diff_nm, main = "", lag.max = 30, ylim = c(-0.3, 1.0))
+```
+
+## Differencing on weekly aggregated data
+```{r}
+weekly_df <- df %>%
+  mutate(week = format(date, "%Y-%U")) %>%
+  group_by(week) %>%
+  summarise(date = min(date), national_demand = mean(national_demand, na.rm = TRUE))
+
+weekly_ts <- ts(weekly_df$national_demand, start = c(2020, 1), frequency = 52)
+
+diff_weekly <- diff(weekly_ts, lag = 52)
+diff_weekly_nm = as.numeric(diff_weekly)
+
+adf_weekly <- adf.test(diff_weekly)
+print(adf_weekly)
+
+par(mar = c(4.5, 4, 1, 1))
+acf(diff_weekly_nm, main = "", lag.max = 30, ylim = c(-0.3, 1.0))
+pacf(diff_weekly_nm, main = "", lag.max = 30, ylim = c(-0.3, 1.0))
+```
+
+## Nested Differencing
+```{r}
+yearly_diff <- diff(ts_df, lag = 365)
+nested_diff <- diff(yearly_diff, lag = 7)
+
+nested_diff_nm <- as.numeric(nested_diff)
+
+adf_test <- adf.test(nested_diff)
+print(adf_test)
+
+acf(nested_diff_nm, main = "ACF of Nested Differenced Energy Demand", lag.max = 30, ylim = c(-0.3, 1.0))
+pacf(nested_diff_nm, main = "PACF of Nested Differenced Energy Demand", lag.max = 30, ylim = c(-0.3, 1.0))
+```
+
+## Yearly Comparison
+
+```{r}
+ggplot(df, aes(x = month, y = national_demand, color = factor(year), group = year)) +
+  stat_summary(fun = mean, geom = "line") +
+  labs(title = "Monthly Patterns by Year", x = "Month", y = "Energy Demand", color = "Year") +
+  theme_minimal()
+```
+
