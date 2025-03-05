@@ -1,0 +1,182 @@
+---
+title: "EDAV Group Assessment"
+output: html_document
+date: "2025-02-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Loading Libraries
+
+```{r}
+
+library(ggplot2)
+library(tseries)
+library(zoo)
+library(forecast)
+library(lubridate)
+
+```
+
+## Loading and Inspecting Data
+
+```{r}
+
+data <- read.csv("energy_demand_uk.csv")
+
+data$date <- as.Date(data$date, format="%Y-%m-%d")
+
+data$year <- year(data$date)
+data$month <- month(data$date, label=TRUE)
+data$day_of_week <- wday(data$date, label=TRUE)
+
+head(data)
+summary(data)
+
+```
+
+
+## Time Series Visualisation
+
+```{r}
+
+ggplot(data, aes(x = date, y = national_demand)) +
+  geom_line(color = "blue") +
+  labs(title = "Energy Demand Over Time", x = "Date", y = "Energy Demand") + 
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y")
+
+```
+
+
+## ADF Test
+```{r}
+adf_test <- adf.test(data$national_demand)
+print(adf_test)
+```
+
+## ACF Analysis
+```{r}
+acf(data$national_demand, main = "ACF of Energy Demand")
+```
+
+
+```{r}
+pacf(data$national_demand, main = "PACF of Energy Demand")
+```
+
+
+
+## Performing seasonal differencing
+
+```{r}
+ts_data <- ts(data$national_demand, start = c(2020, 6), frequency = 365)
+seasonal_diff <- diff(ts_data, lag = 365)
+seasonal_diff_ts <- ts(seasonal_diff, start = c(2021, 6), frequency = 365)
+
+start_date <- as.Date("2020-06-01")
+dates_original <- seq(start_date, by = "day", length.out = length(ts_data))
+dates_diff <- seq(start_date + 365, by = "day", length.out = length(seasonal_diff_ts))
+
+
+z_data <- zoo(coredata(ts_data), dates_original)
+z_diff <- zoo(coredata(seasonal_diff_ts), dates_diff)
+
+
+par(mfrow = c(2, 1), mar = c(3, 4, 2, 1))
+
+
+plot(z_data, main = "Original Energy Demand", ylab = "Demand (MW)", 
+     xaxt = "n", xlab = "")
+axis.Date(1, at = seq(as.Date("2020-06-01"), as.Date("2024-06-01"), 
+          by = "6 months"), format = "%b %Y", las = 1)
+
+plot(z_diff, main = "Seasonally Differenced Energy Demand", 
+     ylab = "Differenced Value", xaxt = "n", xlab = "")
+axis.Date(1, at = seq(as.Date("2021-06-01"), as.Date("2024-06-01"), 
+          by = "6 months"), format = "%b %Y", las = 1)
+
+mtext("Time", side = 1, line = 3.5, outer = TRUE)
+par(mfrow = c(1, 1))
+```
+
+
+```{r}
+adf_diff <- adf.test(seasonal_diff)
+print(adf_diff)
+```
+```{r}
+acf(seasonal_diff, main = "ACF of Seasonally Differenced Energy Demand")
+```
+
+```{r}
+pacf(seasonal_diff, main = "PACF of Seasonally Differenced Energy")
+```
+
+
+## MA Smoothing
+```{r}
+windows <- c(7, 14, 30, 90, 365)
+colors <- c("blue", "red", "green", "purple", "orange")
+
+par(mar = c(5, 4, 4, 10) + 0.1)  
+
+
+plot(data$date, data$national_demand, type = "l", col = "gray", lwd = 1, 
+     main = "Smoothing with Different Window Sizes", 
+     xlab = "Date", ylab = "Energy Demand", 
+     cex.main = 1.2, cex.lab = 1.1, cex.axis = 1.0)
+
+
+for (i in 1:length(windows)) {
+  ma <- rollmean(data$national_demand, k = windows[i], fill = NA, align = "center")
+  lines(data$date, ma, col = colors[i], lwd = 2)
+}
+
+
+par(xpd = TRUE) 
+legend("topright", inset = c(-0.45, 0), legend = paste(windows, "day MA"), 
+       col = colors, lwd = 2, bty = "n", cex = 1.0)
+par(xpd = FALSE)
+
+```
+
+
+## Seasonal Pattern Analysis
+```{r}
+monthly_avg <- aggregate(national_demand ~ month, data, mean)
+
+ggplot(monthly_avg, aes(x = month, y = national_demand, group = 1)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Average National Demand by Month", x = "Month", y = "Energy Demand") +
+  theme_minimal()
+```
+
+## Time Series Decomposition
+```{r}
+ts_decomp <- stl(ts_data, s.window = "periodic")
+plot(ts_decomp)
+```
+## Spectral Analysis
+```{r}
+spectrum_result <- spectrum(data$national_demand, span = 85)
+dominant_freq <- spectrum_result$freq[which.max(spectrum_result$spec)]
+
+
+cat("Dominant frequency:", dominant_freq, "\n")
+cat("Corresponding period (days):", 1 / dominant_freq, "\n")
+```
+
+
+## Yearly Comparison
+```{r}
+ggplot(data, aes(x = month, y = national_demand, color = factor(year), group = year)) +
+  stat_summary(fun = mean, geom = "line") +
+  labs(title = "Monthly Patterns by Year", x = "Month", y = "Energy Demand", color = "Year") +
+  theme_minimal()
+```
+

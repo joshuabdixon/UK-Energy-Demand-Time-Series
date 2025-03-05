@@ -1,0 +1,298 @@
+---
+title: "Group1_Assessment2"
+author: "06014041"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Dependencies
+
+```{r dependencies}
+library(conflicted)  
+library(tidyverse)   
+library(lubridate)   
+library(tibble)     
+library(tidyr)   
+library(ggplot2)
+library(tidyverse)  
+library(data.table) 
+library(lubridate)  
+library(visdat) 
+library(naniar)     
+library(zoo)        
+library(GGally)       
+library(corrplot)     
+library(ggplot2)      
+library(ggcorrplot)   
+library(car)          
+library(tseries)      
+library(forecast) 
+library(patchwork)
+library(plotly)
+
+# Resolve conflicts
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
+
+```
+
+## Introduction
+This notebook reproduces our exploratory data analyses of UK daily energy demand (2020–2024) and its relationship to renewable energy sources, weather, and price variables.
+
+
+## Load data and check quality
+```{r}
+file_path <- "energy_demand_uk.csv"  
+df <- fread(file_path)  
+df$V1 <- NULL
+# Preview dataset 
+str(df)
+glimpse(df)
+summary(df)
+
+# Convert date column to proper Date format
+df$date <- as.Date(df$date, format = "%Y-%m-%d")
+
+# Convert all time series columns to numeric
+numeric_cols <- c("national_demand", "wind_generation", "solar_generation", 
+                  "min_temp", "max_temp", "rain_mm", "wind_speed", "average_price_daily")
+df[, (numeric_cols) := lapply(.SD, as.numeric), .SDcols = numeric_cols]
+
+sapply(df, class)  # Verify data types
+
+#
+# 1.2 Handling Missing Data
+#
+
+# Count missing values per column
+colSums(is.na(df))
+
+# Handle missing data
+df[, min_temp := na.approx(min_temp, na.rm = FALSE)]
+df[, max_temp := na.approx(max_temp, na.rm = FALSE)]
+df[, rain_mm := rollapply(rain_mm, width = 7, FUN = mean, fill = "extend", align = "right")]
+df[, wind_speed := na.approx(wind_speed, na.rm = FALSE)]
+
+
+# Check if missing values arefilled
+colSums(is.na(df))
+
+#
+# 1.3 Check for Duplicates & Anomalies
+#
+
+# Remove duplicate rows if they exist
+df <- unique(df)
+
+# Apply log transformation to all numeric variables
+df_log <- df %>%
+  mutate(across(all_of(numeric_cols), ~log1p(.)))  
+
+# Boxplot after log transformation
+df_log %>% 
+  pivot_longer(cols = numeric_cols, names_to = "Variable", values_to = "Value") %>%
+  ggplot(aes(x = Variable, y = Value)) +
+  geom_boxplot(outlier.colour = "red") +
+  theme_minimal() +
+  coord_flip() +
+  ggtitle("Boxplots (Log-Transformed)")
+
+
+# Identify extreme values using Z-score method
+outlier_threshold <- 3  # Standard Z-score threshold
+z_scores <- df[, lapply(.SD, function(x) (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)), .SDcols = numeric_cols]
+outliers <- df[rowSums(abs(z_scores) > outlier_threshold) > 0]
+
+# Print num of detected outliers
+print(nrow(outliers))
+
+# Manually Winsorising numeric columns (capping extreme values at 1st and 99th percentile)
+df[, (numeric_cols) := lapply(.SD, function(x) {
+  q_low <- quantile(x, 0.01, na.rm = TRUE)   # 1st percentile
+  q_high <- quantile(x, 0.99, na.rm = TRUE)  # 99th percentile
+  x <- pmax(q_low, pmin(x, q_high))  # Cap values within this range
+  return(x)
+}), .SDcols = numeric_cols]file_path <- "energy_demand_uk.csv"  
+df <- fread(file_path)  
+df$V1 <- NULL
+# Preview dataset 
+str(df)
+glimpse(df)
+summary(df)
+
+# Convert date column to proper Date format
+df$date <- as.Date(df$date, format = "%Y-%m-%d")
+
+# Convert all time series columns to numeric
+numeric_cols <- c("national_demand", "wind_generation", "solar_generation", 
+                  "min_temp", "max_temp", "rain_mm", "wind_speed", "average_price_daily")
+df[, (numeric_cols) := lapply(.SD, as.numeric), .SDcols = numeric_cols]
+
+sapply(df, class)  # Verify data types
+
+#
+# 1.2 Handling Missing Data
+#
+
+# Count missing values per column
+colSums(is.na(df))
+
+# Handle missing data
+df[, min_temp := na.approx(min_temp, na.rm = FALSE)]
+df[, max_temp := na.approx(max_temp, na.rm = FALSE)]
+df[, rain_mm := rollapply(rain_mm, width = 7, FUN = mean, fill = "extend", align = "right")]
+df[, wind_speed := na.approx(wind_speed, na.rm = FALSE)]
+
+
+# Check if missing values arefilled
+colSums(is.na(df))
+
+#
+# 1.3 Check for Duplicates & Anomalies
+#
+
+# Remove duplicate rows if they exist
+df <- unique(df)
+
+# Apply log transformation to all numeric variables
+df_log <- df %>%
+  mutate(across(all_of(numeric_cols), ~log1p(.)))  
+
+# Boxplot after log transformation
+df_log %>% 
+  pivot_longer(cols = numeric_cols, names_to = "Variable", values_to = "Value") %>%
+  ggplot(aes(x = Variable, y = Value)) +
+  geom_boxplot(outlier.colour = "red") +
+  theme_minimal() +
+  coord_flip() +
+  ggtitle("Boxplots (Log-Transformed)")
+
+
+# Identify extreme values using Z-score method
+outlier_threshold <- 3  # Standard Z-score threshold
+z_scores <- df[, lapply(.SD, function(x) (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)), .SDcols = numeric_cols]
+outliers <- df[rowSums(abs(z_scores) > outlier_threshold) > 0]
+
+# Print num of detected outliers
+print(nrow(outliers))
+
+# Manually Winsorising numeric columns (capping extreme values at 1st and 99th percentile)
+df[, (numeric_cols) := lapply(.SD, function(x) {
+  q_low <- quantile(x, 0.01, na.rm = TRUE)   # 1st percentile
+  q_high <- quantile(x, 0.99, na.rm = TRUE)  # 99th percentile
+  x <- pmax(q_low, pmin(x, q_high))  # Cap values within this range
+  return(x)
+}), .SDcols = numeric_cols]
+
+summary(df)
+str(df)
+
+```
+
+### Comments on single missing values
+It is likely that the missing observation was overlooked as 2024 is a leap year, the missing date is 29/02/2024. **Missingness Mechanism to be determined**, we will remove for now.
+```{r}
+# Remove all rows that contain any NA values
+energy_data_clean <- energy_data %>%
+  filter(complete.cases(.))
+
+# Check if any missing values remain
+colSums(is.na(energy_data_clean))  # Should return 0 for all columns
+```
+
+
+## Univariate EDA
+```{r}
+# Pivot the data to long format
+energy_data_long <- energy_data_clean %>%
+  pivot_longer(
+    cols = c(national_demand, wind_generation, solar_generation,
+             min_temp, max_temp, rain_mm, wind_speed, average_price_daily),
+    names_to = "variable",
+    values_to = "value"
+  )
+
+# Plot each variable as a time series, using facets
+ggplot(energy_data_long, aes(x = date, y = value)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(
+    title = "Time Series Plots of All Variables",
+    x = "Date",
+    y = "Value"
+  ) +
+  theme_bw()
+```
+
+## Repeated univariate visualisations (function)
+```{r repeated_univariate_functions}
+# Colour-blind friendly palette
+cbPalette <- c("#000000", '#E69F00', '#56B4E9', '#009E73', 
+               '#F0E442', '#0072B2', '#D55E00', '#CC79A7')
+
+# Function to create overlaid histograms
+plot_two_hists <- function(df, var1, var2, binwidth = 1) {
+  library(ggplot2)
+  
+  ggplot(df, aes(x = .data[[var1]])) +
+    # First histogram
+    geom_histogram(
+      aes(y = after_stat(density)),
+      binwidth = binwidth,
+      fill = cbPalette[1],
+      alpha = 0.4,
+      colour = "black"
+    ) +
+    # Second histogram
+    geom_histogram(
+      aes(x = .data[[var2]], y = after_stat(density)),
+      binwidth = binwidth,
+      fill = cbPalette[2],
+      alpha = 0.4,
+      colour = "black"
+    ) +
+    labs(
+      x = "Value",
+      y = "Density",
+      title = paste("Overlaid Histograms of", var1, "and", var2)
+    ) +
+    theme_minimal()
+}
+
+# Function to plot two densities
+plot_two_densities <- function(df, var1, var2) {
+  library(ggplot2)
+  
+  ggplot(df, aes(x = .data[[var1]])) +
+    # First density
+    geom_density(
+      fill = cbPalette[1],
+      colour = cbPalette[1],
+      alpha = 0.4
+    ) +
+    # Second density
+    geom_density(
+      aes(x = .data[[var2]]),
+      fill = cbPalette[2],
+      colour = cbPalette[2],
+      alpha = 0.4
+    ) +
+    labs(
+      x = "Value",
+      y = "Density",
+      title = paste("Overlaid Densities of", var1, "and", var2)
+    ) +
+    theme_minimal()
+}
+```
+
+
+
+```{r}
+energy_data_clean
+```
+
+
