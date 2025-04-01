@@ -656,6 +656,8 @@ vif_df <- numeric_vars %>% select(-c(max_temp))
 # }
 ```
 # Further Multivariate EDA Visualisations (Josh)
+# Note to marker: this section can be skipped as none of these plots made it to the final report or presentation.The key multivariate
+# code plots can be found in "Final Multivariate Plots (Josh)
 ```{r}
 #--------------------------------
 # Split by Winter and Summer Months
@@ -1231,36 +1233,6 @@ df_tidy_scaled <- df_scaled %>%
     values_to = "value"
   )
 
-ggplot(df_tidy_scaled, aes(x = variable, y = value, fill = Period)) +
-  geom_violin(position = position_dodge(width=0.8)) +
-  labs(title = "Demand vs. Scaled Solar & Wind")
-
-
-# Secondary Axis Plot
-scaleFactor <- 20
-
-df_tidy_scaled2 <- df_ext %>%
-  mutate(
-    solar_scaled = solar_generation * scaleFactor,
-    wind_scaled  = wind_generation  * scaleFactor
-  ) %>%
-  pivot_longer(
-    cols = c("national_demand", "solar_scaled", "wind_scaled"),
-    names_to = "variable",
-    values_to = "value"
-  )
-
-ggplot(df_tidy_scaled2, aes(x = variable, y = value, fill = Period)) +
-  geom_violin(position = position_dodge(width=0.8)) +
-  scale_y_continuous(
-    name = "National Demand (MW)",
-    sec.axis = sec_axis(
-      ~ . / scaleFactor,
-      name = "Solar / Wind (MW, real scale)"
-    )
-  ) +
-  labs(title = "Demand vs. Scaled Solar & Wind, With Two Axes") +
-  theme_minimal()
 
 # 3.1 Violin by Period (Mar-Oct vs. Nov-Feb) - Solar Generation
 
@@ -1575,5 +1547,715 @@ ggpairs(df_gpairs,
         aes(color = Period, alpha = 0.5)) +
   labs(title = "Pairwise Scatterplots: Demand, Log(Solar Generation), Temperature") +
   theme_minimal()
+```
+# Final Multivariate Plots (Josh)
+
+## Pairwise Correlation
+```{r}
+# # data
+# str(df_ext)
+# str(df_gpairs)
+# 
+# # Include groupings by weekday and weekend
+# df_gpairs <- df_gpairs %>%
+#   mutate(
+#     weekday = ifelse(weekdays(date) %in% c("Saturday", "Sunday"), "Weekend", "Weekday")
+#   )
+
+
+# 3. ggpairs with log(solar_generation) by period
+# demand solar wind and temp
+ggpairs(
+  data = df_gpairs,
+  columns = c("national_demand", "log_solar_gen", "min_temp"),
+  mapping = aes(color = Period, alpha = 0.5),
+  diag = list(continuous = "densityDiag"),
+  lower = list(continuous = "points"),
+  upper = list(continuous = wrap("cor", method = "spearman")) # spearman allows for non-linear relationships
+
+)
+
+# demand solar wind and temp
+ggpairs(
+  data = df_gpairs,
+  columns = c("national_demand", "solar_generation", "min_temp"),
+  mapping = aes(color = Period, alpha = 0.5),
+  diag = list(continuous = "densityDiag"),
+  lower = list(continuous = "points"),
+  upper = list(continuous = wrap("cor", method = "spearman")) # spearman allows for non-linear relationships (p value is approx)
+
+)
+```
+```{r}
+# Create a new variable "day_type" for weekend vs weekday
+df_gpairs$date <- df_ext$date
+
+df_gpairs <- df_ext %>%
+  mutate(
+    day_type = ifelse(weekdays(date) %in% c("Saturday", "Sunday"), "Weekend", "Weekday")
+  )
+
+str(df_gpairs)
+str(df_ext)
+
+# 1a: Combine the grouping of Period and day_type using interaction
+ggpairs(
+  data = df_gpairs,
+  columns = c("national_demand", "log_solar_gen", "min_temp"),
+  mapping = aes(color = interaction(Period, day_type), alpha = 0.5),
+  diag = list(continuous = "densityDiag"),
+  lower = list(continuous = "points"),
+  upper = list(continuous = wrap("cor", method = "spearman"))
+)
+
+# 1b) Use solar_generation instead of log_solar_gen
+ggpairs(
+  data = df_gpairs,
+  columns = c("national_demand", "solar_generation", "min_temp"),
+  mapping = aes(color = interaction(Period, day_type), alpha = 0.5),
+  diag = list(continuous = "densityDiag"),
+  lower = list(continuous = "points"),
+  upper = list(continuous = wrap("cor", method = "spearman"))
+)
+
+# 2A) No weekend/weekday. color only by Period, using log_solar_gen
+ggpairs(
+  data = df_gpairs,
+  columns = c("national_demand", "log_solar_gen", "min_temp"),
+  mapping = aes(color = Period, alpha = 0.5),
+  diag = list(continuous = "densityDiag"),
+  lower = list(continuous = "points"),
+  upper = list(continuous = wrap("cor", method = "spearman"))
+)
+
+# 2B) No weekend/weekday. color only by Period, using solar_generation
+ggpairs(
+  data = df_gpairs,
+  columns = c("national_demand", "solar_generation", "min_temp"),
+  mapping = aes(color = Period, alpha = 0.5),
+  diag = list(continuous = "densityDiag"),
+  lower = list(continuous = "points"),
+  upper = list(continuous = wrap("cor", method = "spearman"))
+)
+
+
+
+```
+
+## Violin 
+```{r}
+df_var1 <- data.frame(
+  var = "national_demand",
+  val = df_ext$national_demand
+)
+df_var2 <- data.frame(
+  var = "solar_generation",
+  val = df_ext$solar_generation
+)
+
+#  Set axis 
+demandMin <- 22500
+demandMax <- 45000  
+
+solarMin  <- 0
+solarMax  <- 1600   
+
+# Compute scaleFactor so [solarMin, solarMax] -> [demandMin, demandMax]
+scaleFactor <- (demandMax - demandMin) / (solarMax - solarMin)
+
+#  Build the plot, manually transforming solar
+ggplot() +
+  #National Demand Violin 
+  geom_violin(
+    data = df_var1,
+    aes(x = var, y = val),
+    fill = "grey80", alpha = 0.5, color = "black", linewidth = 0.5
+  ) +
+  
+  # Solar Generation Violin ----
+  geom_violin(
+    data = df_var2,
+    # transform solar from [solarMin, solarMax] into [demandMin, demandMax]
+    aes(x = var, y = (val - solarMin) * scaleFactor + demandMin),
+    fill = "red", alpha = .9, color = "black", linewidth = 0.5
+  ) +
+  
+  #  X scale with two categories ===
+  scale_x_discrete(limits = c("national_demand", "solar_generation"), name = NULL) +
+  
+  # === 5) Y scale: left axis [demandMin, demandMax], right axis [solarMin, solarMax] ===
+  scale_y_continuous(
+    name = "national_demand",
+    limits = c(demandMin, demandMax),
+    
+    sec.axis = sec_axis(
+      # invert the scaling for axis labels
+      trans = ~ (. - demandMin) / scaleFactor + solarMin,
+      name = "solar_generation"
+    )
+  ) +
+  
+  # === 6) Style the right axis in red, remove or adjust other theme elements as you like
+  theme_minimal() +
+  theme(
+    axis.text.y.right  = element_text(color = "red"),
+    axis.title.y.right = element_text(color = "red"),
+    axis.line.y.right  = element_line(color = "red"),
+    axis.ticks.y.right = element_line(color = "red")
+  )
+```
+
+## Violin and Box
+
+```{r}
+
+## Violin and Box
+
+library(ggtext)
+
+# Create datasets for full period and seasonal splits
+df_varAll_demand <- data.frame(
+  var = "All_demand",
+  val = df_ext$national_demand
+)
+
+df_varAll_solar <- data.frame(
+  var = "All_solar",
+  val = df_ext$solar_generation
+)
+
+df_varApr_demand <- data.frame(
+  var = "Apr-Sep_demand",
+  val = df_ext %>% filter(Period == "Apr–Sep") %>% pull(national_demand)
+)
+
+df_varApr_solar <- data.frame(
+  var = "Apr-Sep_solar",
+  val = df_ext %>% filter(Period == "Apr–Sep") %>% pull(solar_generation)
+)
+
+df_varOct_demand <- data.frame(
+  var = "Oct-Mar_demand",
+  val = df_ext %>% filter(Period == "Oct–Mar") %>% pull(national_demand)
+)
+
+df_varOct_solar <- data.frame(
+  var = "Oct-Mar_solar",
+  val = df_ext %>% filter(Period == "Oct–Mar") %>% pull(solar_generation)
+)
+
+# Combine into one table
+df_all <- dplyr::bind_rows(
+  df_varAll_demand,
+  df_varAll_solar,
+  df_varApr_demand,
+  df_varApr_solar,
+  df_varOct_demand,
+  df_varOct_solar
+)
+
+# Set axis ranges and scale factor for solar conversion
+demandMin  <- 22500
+demandMax  <- 45000
+solarMin   <- 0
+solarMax   <- 1600
+scaleFactor <- (demandMax - demandMin) / (solarMax - solarMin)
+
+# Plot
+ggplot() +
+  
+  # Violin for full-period demand
+  geom_violin(
+    data = df_all %>% filter(var == "All_demand"),
+    aes(x = var, y = val),
+    fill = "grey80",
+    alpha = 0.5,
+    color = "black",
+    linewidth = 0.5
+  ) +
+  
+  # Boxplots for seasonal demand
+  geom_boxplot(
+    data = df_all %>% filter(var %in% c("Apr-Sep_demand", "Oct-Mar_demand")),
+    aes(x = var, y = val),
+    width = 0.4,
+    outlier.shape = 16
+  ) +
+  
+  # Violin for full-period solar (scaled)
+  geom_violin(
+    data = df_all %>% filter(var == "All_solar"),
+    aes(x = var, y = (val - solarMin) * scaleFactor + demandMin),
+    fill = "red",
+    alpha = 1,
+    color = "black",
+    linewidth = 0.5
+  ) +
+  
+  # Boxplots for seasonal solar (scaled)
+  geom_boxplot(
+    data = df_all %>% filter(var %in% c("Apr-Sep_solar", "Oct-Mar_solar")),
+    aes(x = var, y = (val - solarMin) * scaleFactor + demandMin),
+    width = 0.4,
+    outlier.shape = 16,
+    color = "red"
+  ) +
+  
+  # X-axis labels
+  scale_x_discrete(
+    name = NULL,
+    limits = c(
+      "All_demand",
+      "Apr-Sep_demand",
+      "Oct-Mar_demand",
+      "All_solar",
+      "Apr-Sep_solar",
+      "Oct-Mar_solar"
+    )
+  ) +
+  
+  # Y-axis scales (primary: demand, secondary: solar)
+  scale_y_continuous(
+    name = "national_demand",
+    limits = c(demandMin, demandMax),
+    sec.axis = sec_axis(
+      ~ (. - demandMin) / scaleFactor + solarMin,
+      name = "solar_generation"
+    )
+  ) +
+  
+  # Theme adjustments
+  theme_minimal() +
+  theme(
+    axis.text.y.right  = element_text(color = "red"),
+    axis.title.y.right = element_text(color = "red")
+  )
+
+
+
+
+
+```
+
+## Time Series Multivariate (
+```{r}
+# Create smoothed versions of demand and solar
+df_smoothed <- df_ext %>%
+  mutate(
+    demand_smooth = rollmean(national_demand, k = 90, fill = NA, align = "right"),
+    solar_smooth  = rollmean(solar_generation,  k = 90, fill = NA, align = "right")
+  )
+
+demandCol <- "black"
+solarCol  <- "#D55E00"
+
+# Compute scale factor for second axis
+demandMin <- min(df_smoothed$demand_smooth, na.rm = TRUE)
+demandMax <- max(df_smoothed$demand_smooth, na.rm = TRUE)
+solarMin  <- min(df_smoothed$solar_smooth,  na.rm = TRUE)
+solarMax  <- max(df_smoothed$solar_smooth,  na.rm = TRUE)
+
+sf <- (demandMax - demandMin) / (solarMax - solarMin)
+
+ggplot() +
+  # Demand line
+  geom_line(
+    data = df_smoothed,
+    aes(x = date, y = demand_smooth),
+    color = demandCol,
+    size  = 1
+  ) +
+  # Solar line (scaled to demand range)
+  geom_line(
+    data = df_smoothed,
+    aes(x = date, y = (solar_smooth - solarMin) * sf + demandMin),
+    color = solarCol,
+    size  = 1
+  ) +
+  labs(
+    # title = "Time Series: Demand & Solar Generation (smoothed)",
+    x = "Date", 
+    y = "National Demand (MW)"
+  ) +
+  scale_y_continuous(
+    # Left axis for Demand
+    limits = c(demandMin, demandMax),
+    # Right axis for Solar
+    sec.axis = sec_axis(
+      trans = ~ (. - demandMin) / sf + solarMin,
+      name  = "Solar Gen (MW)"
+    )
+  ) +
+  theme_minimal(base_size = 13) +
+  # Color-match the axes with the lines
+  theme(
+    axis.title.y  = element_text(color = demandCol),
+    axis.text.y   = element_text(color = demandCol),
+    axis.title.y.right = element_text(color = solarCol),
+    axis.text.y.right  = element_text(color = solarCol)
+  )
+
+```
+
+## Scatter Plots + Linear Fit
+```{r}
+## 2) Three scatter plots with geom_smooth(method = "lm")
+
+# (A) National Demand (y) vs. Solar Generation (x)
+ggplot(df_ext, aes(x = solar_generation, y = national_demand)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Demand vs. Solar Generation", x = "Solar Generation", y = "National Demand") +
+  theme_minimal()
+
+# (B) National Demand (y) vs. min_temp (x)
+ggplot(df_ext, aes(x = min_temp, y = national_demand)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Demand vs. Min Temperature", x = "Min Temp", y = "National Demand") +
+  theme_minimal()
+
+# (C) Solar Generation (y) vs. min_temp (x)
+ggplot(df_ext, aes(x = min_temp, y = solar_generation)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Solar Generation vs. Min Temperature", x = "Min Temp", y = "Solar Generation") +
+  theme_minimal()
+
+```
+
+## Scatter Plots + Linear Fit + Period
+```{r}
+# 3) Three scatter plots + lm lines, color by Period
+
+# 1A) Demand vs. Solar Gen, single x-axis colored by Period
+ggplot(df_ext, aes(x = solar_generation, y = national_demand, color = Period)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(x = "Solar Generation(MV)", y = "National Demand(MV)") +
+  theme_minimal()
+df_ext
+
+# 1A) Demand vs. Solar Gen, single x-axis colored by Period
+dem_sol <- ggplot(df_ext, aes(x = solar_generation, y = national_demand, color = Period)) +
+  geom_point(alpha = 0.5) +
+  labs(x = "Solar Generation(MV)", y = "National Demand (MV)") +
+  # Loess for Apr–Sep only
+  geom_smooth(
+    data = subset(df_ext, Period == "Apr–Sep"),
+    method = "lm", 
+    se = TRUE
+  ) +
+  theme_minimal()
+ggMarginal(
+  dem_sol,
+  type = "boxplot",
+  margins = "x",           # Only on the top/bottom margin
+  groupColour = TRUE,
+  groupFill   = TRUE
+)
+
+# Check the summary
+mod1 <- lm(national_demand ~ solar_generation, data = df_ext)
+summary(mod1)
+
+# Apr–Sep only
+mod_aprsep <- lm(national_demand ~ solar_generation, 
+                 data = subset(df_ext, Period == "Apr–Sep"))
+summary(mod_aprsep)
+
+# Oct–Mar only
+mod_octmar <- lm(national_demand ~ solar_generation, 
+                 data = subset(df_ext, Period == "Oct–Mar"))
+summary(mod_octmar)
+
+# log version
+ggplot(df_ext, aes(x = log_solar_gen, y = log_national_demand, color = Period)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(x = "Log Solar Generation", y = "Log National Demand") +
+  theme_minimal()
+help(geom_smooth)
+help(log1p)
+
+# 1B) Demand vs. MinTemp, single x-axis colored by Period
+dem_temp <- ggplot(df_ext, aes(x = min_temp, y = national_demand, color = Period)) +
+  geom_point(alpha = 0.5) +
+  # Loess for Apr–Sep only
+  geom_smooth(
+    data = subset(df_ext, Period == "Apr–Sep"),
+    method = "loess", 
+    se = TRUE
+  ) +
+  # LM for Oct–Mar only
+  geom_smooth(
+    data = subset(df_ext, Period == "Oct–Mar"),
+    method = "lm", 
+    se = TRUE
+  ) +
+  labs(x = "Min Temp(°C)", y = "National Demand (MV)") +
+  theme_minimal()
+ggMarginal(dem_temp, type = "violin", groupColour = TRUE, groupFill = TRUE)
+
+help("lm")
+help("loess")
+# Check significance of quadratic term
+# Subset data for Apr–Sep
+df_aprsep <- subset(df_ext, Period == "Apr–Sep")
+
+# Fit a model with linear + quadratic terms
+mod_quad <- lm(national_demand ~ min_temp + I(min_temp^2), data = df_aprsep)
+
+# Look at coefficient estimates and significance
+summary(mod_quad)
+
+
+#Check the summary
+mod2_lm <- lm(national_demand ~ min_temp, data = df_ext)
+summary(mod2_lm)
+
+mod2_loess <- loess(national_demand ~ min_temp, data = df_ext)
+summary(mod2_loess)
+
+# Apr–Sep only
+mod_aprsep <- lm(national_demand ~ solar_generation, 
+                 data = subset(df_ext, Period == "Apr–Sep"))
+summary(mod_aprsep)
+
+# Apr–Sep only
+mod_aprsep_loes <- loess(national_demand ~ solar_generation, 
+                 data = subset(df_ext, Period == "Apr–Sep"))
+summary(mod_aprsep_loes)
+
+# Oct–Mar only
+mod_octmar <- loess(national_demand ~ solar_generation, 
+                 data = subset(df_ext, Period == "Oct–Mar"))
+summary(mod_octmar)
+
+# 1B2 Log version for lcheck
+dem_temp <- ggplot(df_ext, aes(x = log1p(min_temp), y = national_demand, color = Period)) +
+  geom_point(alpha = 0.5) +
+  # Loess for Apr–Sep only
+  geom_smooth(
+    data = subset(df_ext, Period == "Apr–Sep"),
+    method = "l", 
+    se = TRUE
+  ) +
+  # LM for Oct–Mar only
+  geom_smooth(
+    data = subset(df_ext, Period == "Oct–Mar"),
+    method = "lm", 
+    se = TRUE
+  ) +
+  labs(x = "Min Temp(°C)", y = "National Demand (MV)") +
+  theme_minimal()
+ggMarginal(dem_temp, type = "violin", groupColour = TRUE, groupFill = TRUE)
+
+help("lm")
+help("loess")
+# Check significance of quadratic term
+# Subset data for Apr–Sep
+df_aprsep <- subset(df_ext, Period == "Apr–Sep")
+
+# Fit a model with linear + quadratic terms
+mod_quad <- lm(national_demand ~ min_temp + I(min_temp^2), data = df_aprsep)
+
+# Look at coefficient estimates and significance
+summary(mod_quad)
+
+
+#Check the summary
+mod2_lm <- lm(national_demand ~ min_temp, data = df_ext)
+summary(mod2_lm)
+
+mod2_loess <- loess(national_demand ~ min_temp, data = df_ext)
+summary(mod2_loess)
+
+# Apr–Sep only
+mod_aprsep <- lm(national_demand ~ solar_generation, 
+                 data = subset(df_ext, Period == "Apr–Sep"))
+summary(mod_aprsep)
+
+# Apr–Sep only
+mod_aprsep_loes <- loess(national_demand ~ solar_generation, 
+                 data = subset(df_ext, Period == "Apr–Sep"))
+summary(mod_aprsep_loes)
+
+# Oct–Mar only
+mod_octmar <- loess(national_demand ~ solar_generation, 
+                 data = subset(df_ext, Period == "Oct–Mar"))
+summary(mod_octmar)
+```
+
+## Scatter Plots + Linear Fit + Weekend/day
+```{r}
+## 4) Three scatter plots + lm lines, facet or color by day_type
+
+# (A) Demand vs. Solar Gen, split by day_type
+ggplot(df_gpairs, aes(x = solar_generation, y = national_demand, color = day_type)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ day_type) +
+  labs(title = "Demand vs. Solar Generation by Day Type", x = "Solar Generation", y = "National Demand") +
+  theme_minimal()
+help("lm")
+stats:
+# (B) Demand vs. min_temp, split by day_type
+ggplot(df_gpairs, aes(x = min_temp, y = national_demand, color = day_type)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ day_type) +
+  labs(title = "Demand vs. Min Temp by Day Type", x = "Min Temp", y = "National Demand") +
+  theme_minimal()
+
+# (C) Solar Gen vs. min_temp, split by day_type
+ggplot(df_gpairs, aes(x = min_temp, y = solar_generation, color = day_type)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ day_type) +
+  labs(title = "Solar Generation vs. Min Temp by Day Type", x = "Min Temp", y = "Solar Generation") +
+  theme_minimal()
+
+
+```
+
+# Granger and CCF
+```{r}
+# Select only numeric variables for correlation and multivariate analysis
+numeric_vars <- df[, !("date"), with = FALSE]
+
+energy_ts <- ts(df$national_demand, frequency = 365)
+solar_ts <- ts(df$solar_generation, frequency = 365)
+wind_ts <- ts(df$wind_generation, frequency = 365)
+price_ts <- ts(df$average_price_daily, frequency = 365)
+wind_speed_ts <- ts(df$wind_speed, frequency = 365)
+rain_ts <- ts(df$rain_mm, frequency = 365)
+temp_ts <- ts(df$min_temp, frequency = 365)
+
+# =====================================
+# 5.2 GRANGER CAUSALITY ANALYSIS
+
+optimal_lag <- VARselect(cbind(energy_ts, solar_ts), lag.max = 150, type = "const")
+print(optimal_lag)
+
+
+grangertest(energy_ts ~ temp_ts, order = 9)
+
+grangertest(solar_ts ~ energy_ts, order = 9)
+
+
+grangertest(temp_ts ~ solar_ts, order = 9)
+
+grangertest(energy_ts ~ solar_ts, order = 9)
+
+
+help(grangertest)
+
+# Custom correlation panel (upper panels)
+custom_cor <- function(data, mapping, ...) {
+  x <- eval_data_col(data, mapping$x)
+  y <- eval_data_col(data, mapping$y)
+  corr <- cor(x, y, use = "complete.obs")
+  corr_text <- sprintf("%.2f", corr)
+  
+  df <- data.frame(x = 1, y = 1, corr = corr)
+  
+  ggplot(df, aes(x, y, fill = corr)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = corr_text), size = 5) +
+    scale_fill_gradient2(
+      low = "blue",     # Negative correlation
+      mid = "white",    # Zero correlation
+      high = "red",     # Positive correlation
+      midpoint = 0,
+      limits = c(-1, 1)
+    ) +
+    theme_void() +
+    theme(legend.position = "right")
+}
+
+
+my_column_labels <- c(
+  "National\nDemand",
+  "Wind\nGen",
+  "Solar\nGen",
+  "Min\nTemp",
+  "Max\nTemp",
+  "Rain\nmm",
+  "Wind\nSpeed",
+  "Avg\nPrice\nDaily"
+)
+
+options(scipen = 999)
+
+# Create the ggpairs plot
+p <- ggpairs(
+  numeric_vars,
+  columnLabels = my_column_labels,  
+  lower = list(
+    continuous = wrap("points", alpha = 0.3, size = 0.8, color = "gray40")
+  ),
+  diag = list(
+    continuous = wrap("densityDiag", fill = "gray40", color = "gray40", alpha = 0.3)
+  ),
+  upper = list(
+    continuous = custom_cor
+  ),
+  title = "Pairwise Scatterplot with Correlation Matrix"
+)
+
+# Adjust theme to fix label overlap & give more space
+p <- p + theme(
+  axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+  axis.text.y = element_text(size = 8),
+  strip.text  = element_text(size = 8),
+  plot.margin = margin(10, 10, 10, 10)
+)
+
+
+# print(p)
+
+
+# Set up a grid layout: 3 rows and 2 columns
+par(mfrow = c(3, 2))
+
+# Cross-Correlation: Energy Demand vs. Solar Generation
+ccf(solar_ts, energy_ts, lag.max = 30, main = "CCF: National Demand vs. Solar Generation")
+
+# Cross-Correlation: Energy Demand vs. Temperature
+ccf(energy_ts, temp_ts, lag.max = 365)
+
+# Cross-Correlation: Energy Demand vs. Electricity Price
+ccf(energy_ts, price_ts, lag.max = 30, main = "CCF: Energy Demand vs. Electricity Price")
+
+
+ccf(energy_ts, solar_ts, lag.max = 365, main = "")
+
+
+# Define lag for seasonal differencing 
+seasonal_lag <- 365
+
+# Apply seasonal differencing and properly handle NA values
+df$National_Demand_seasdiff <- c(rep(NA, seasonal_lag), diff(df$national_demand, lag=seasonal_lag))
+df$Solar_Generation_seasdiff <- c(rep(NA, seasonal_lag), diff(df$solar_generation, lag=seasonal_lag))
+
+df1 <- data.frame(Time = 1:length(df$National_Demand_seasdiff), 
+                 National_Demand_seasdiff = df$National_Demand_seasdiff)
+
+data_clean <- na.omit(df)
+
+kpss.test(data_clean$National_Demand_seasdiff)
+kpss.test(data_clean$Solar_Generation_seasdiff)
+
+# Apply seasonal differencing and properly handle NA values
+data_clean$National_Demand_seasdiff2 <- c(rep(NA, 7), diff(data_clean$National_Demand_seasdiff, lag = 7))
+
+# Remove NA values introduced by differencing
+data_clean <- na.omit(data_clean)
+
+kpss.test(data_clean$National_Demand_seasdiff2)
+
+ccf(data_clean$National_Demand_seasdiff2, data_clean$Solar_Generation_seasdiff, lag.max = 365, main = "CCF: Twice diff Energy Demand vs. Diff. Solar Generation (1 Lag = 365 days)")
+
 ```
 
