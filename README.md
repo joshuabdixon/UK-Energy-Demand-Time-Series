@@ -18,7 +18,7 @@ Key variables analysed include:
 ## 🔍 Responsibilities
 
 **Team Lead**  
-I served as the **team leader**, providing overall direction for the project, coordinating tasks, and ensuring the group met its milestones.
+I served as the **team leader**, providing overall direction for the project, coordinating tasks, and quality assurance.
 
 **Multivariate Analysis Lead**  
 I was also primarily responsible for the **multivariate analysis** and the key insights presented in the final report. This included:
